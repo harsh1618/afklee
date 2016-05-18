@@ -117,6 +117,9 @@ public:
   /// taken to reach/create this state
   TreeOStream symPathOS;
 
+  ExecutionState *lastConcreteState;
+  unsigned failCount;
+
   /// @brief Counts how many instructions were executed since the last new
   /// instruction was covered.
   unsigned instsSinceCovNew;

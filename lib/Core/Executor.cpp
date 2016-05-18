@@ -1200,6 +1200,30 @@ void Executor::executeCall(ExecutionState &state,
     if (InvokeInst *ii = dyn_cast<InvokeInst>(i))
       transferToBasicBlock(ii->getNormalDest(), i->getParent(), state);
   } else {
+    // Randomly choose whether to make the function symbolic. If this is the
+    // first function to be made symbolic on the current path, create a copy of
+    // the execution state.
+    if (theRNG.getBool()
+        && state.getFnAlias(f->getName()) == "") {
+      SmallString<256> tmpName;
+      StringRef symName = ("_symbolic_" + f->getName()).toStringRef(tmpName);
+      GlobalValue *gv = kmodule->module->getNamedValue(symName);
+      if (Function *symFn = dyn_cast_or_null<Function>(gv)) {
+        klee_message("Aliasing %s to %s\n", f->getName().data(), symFn->getName().data());
+        if (!state.lastConcreteState) {
+          ExecutionState *copiedConcreteState = new ExecutionState(state);
+          copiedConcreteState->failCount = 0;
+          state.lastConcreteState = copiedConcreteState;
+          sleepingStates.insert(copiedConcreteState);
+        }
+        state.addFnAlias(f->getName(), symFn->getName());
+        // Both functions have the same type, we should be fine without repeating
+        // the steps in executeInstruction
+        f = getTargetFunction(f, state);
+        assert(f == symFn && "Function aliasing failed");
+      }
+    }
+
     // FIXME: I'm not really happy about this reliance on prevPC but it is ok, I
     // guess. This just done to avoid having to pass KInstIterator everywhere
     // instead of the actual instruction, since we can't make a KInstIterator
@@ -2741,9 +2765,35 @@ void Executor::terminateStateOnError(ExecutionState &state,
   static std::set< std::pair<Instruction*, std::string> > emittedErrors;
   Instruction * lastInst;
   const InstructionInfo &ii = getLastNonKleeInternalInstruction(state, &lastInst);
-  
-  if (EmitAllErrors ||
-      emittedErrors.insert(std::make_pair(lastInst, message)).second) {
+
+  // If the state is abstract and failure threshold is reached, add the cloned
+  // concrete state to the searcher. Remove all abstract states which descended
+  // from the concrete state.
+  ExecutionState *lastConc = state.lastConcreteState;
+  if (lastConc) {
+    lastConc->failCount++;
+    if (lastConc->failCount >= ABSTRACTION_FAIL_THRESHOLD) {
+
+      std::set<ExecutionState*>::iterator it = sleepingStates.find(lastConc);
+      assert(it != sleepingStates.end()
+             && "Sleeping concrete state not found");
+      sleepingStates.erase(it);
+
+      addedStates.insert(lastConc);
+
+      for (std::set<ExecutionState*>::iterator
+           st = states.begin(), ste = states.end();
+           st != ste; ++st) {
+        if ((*st)->lastConcreteState == lastConc && *st != &state) {
+          removedStates.insert(*st);
+        }
+      }
+    }
+  }
+
+  // Don't report errors for abstract state.
+  if (!lastConc && ( EmitAllErrors ||
+      emittedErrors.insert(std::make_pair(lastInst, message)).second)) {
     if (ii.file != "") {
       klee_message("ERROR: %s:%d: %s", ii.file.c_str(), ii.line, message.c_str());
     } else {

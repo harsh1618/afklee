@@ -29,6 +29,8 @@
 #include <map>
 #include <set>
 
+#define ABSTRACTION_FAIL_THRESHOLD 5
+
 struct KTest;
 
 namespace llvm {
@@ -116,6 +118,11 @@ private:
   SpecialFunctionHandler *specialFunctionHandler;
   std::vector<TimerInfo*> timers;
   PTree *processTree;
+
+  /// Copies of states created when a function is abstracted. A state in this
+  /// set will be made active if ABSTRACTION_FAIL_THRESHOLD states descending
+  /// from it end in an error.
+  std::set<ExecutionState*> sleepingStates;
 
   /// Used to track states that have been added during the current
   /// instructions step. 
