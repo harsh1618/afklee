@@ -38,6 +38,7 @@ public:
   virtual std::string getOutputFilename(const std::string &filename) = 0;
   virtual llvm::raw_fd_ostream *openOutputFile(const std::string &filename) = 0;
 
+  virtual void incAbstractPathsExplored(bool abstract) = 0;
   virtual void incPathsExplored() = 0;
 
   virtual void processTestCase(const ExecutionState &state,
@@ -54,12 +55,14 @@ public:
     bool Optimize;
     bool CheckDivZero;
     bool CheckOvershift;
+    bool AbstractFunctions;
 
     ModuleOptions(const std::string& _LibraryDir, 
                   bool _Optimize, bool _CheckDivZero,
-                  bool _CheckOvershift)
+                  bool _CheckOvershift, bool _AbstractFunctions)
       : LibraryDir(_LibraryDir), Optimize(_Optimize), 
-        CheckDivZero(_CheckDivZero), CheckOvershift(_CheckOvershift) {}
+        CheckDivZero(_CheckDivZero), CheckOvershift(_CheckOvershift),
+        AbstractFunctions(_AbstractFunctions){}
   };
 
   enum LogType
@@ -76,9 +79,12 @@ public:
     /// symbolic values. This is used to test the correctness of the
     /// symbolic execution on concrete programs.
     unsigned MakeConcreteSymbolic;
+    
+    unsigned AbstractFunctions;
 
     InterpreterOptions()
-      : MakeConcreteSymbolic(false)
+      : MakeConcreteSymbolic(false),
+        AbstractFunctions(false)
     {}
   };
 

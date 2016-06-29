@@ -82,6 +82,7 @@
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/Process.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/ADT/SmallString.h"
 
 #if LLVM_VERSION_CODE < LLVM_VERSION(3, 5)
 #include "llvm/Support/CallSite.h"
@@ -1203,17 +1204,18 @@ void Executor::executeCall(ExecutionState &state,
     // Randomly choose whether to make the function symbolic. If this is the
     // first function to be made symbolic on the current path, create a copy of
     // the execution state.
-    if (theRNG.getBool()
+    if (interpreterOpts.AbstractFunctions && (theRNG.getInt32() % 10 == 0)
         && state.getFnAlias(f->getName()) == "") {
-      SmallString<256> tmpName;
+      SmallString<512> tmpName;
       StringRef symName = ("_symbolic_" + f->getName()).toStringRef(tmpName);
       GlobalValue *gv = kmodule->module->getNamedValue(symName);
       if (Function *symFn = dyn_cast_or_null<Function>(gv)) {
         klee_message("Aliasing %s to %s\n", f->getName().data(), symFn->getName().data());
-        if (!state.lastConcreteState) {
+        if (!state.isAbstract) {
           ExecutionState *copiedConcreteState = new ExecutionState(state);
           copiedConcreteState->failCount = 0;
           state.lastConcreteState = copiedConcreteState;
+          state.isAbstract = true;
           sleepingStates.insert(copiedConcreteState);
         }
         state.addFnAlias(f->getName(), symFn->getName());
@@ -2497,7 +2499,6 @@ void Executor::checkMemoryUsage() {
         // just guess at how many to kill
         unsigned numStates = states.size();
         unsigned toKill = std::max(1U, numStates - numStates * MaxMemory / mbs);
-        klee_warning("killing %d states (over memory cap)", toKill);
         std::vector<ExecutionState *> arr(states.begin(), states.end());
         for (unsigned i = 0, N = arr.size(); N && i < toKill; ++i, --N) {
           unsigned idx = rand() % N;
@@ -2681,6 +2682,9 @@ void Executor::terminateState(ExecutionState &state) {
   }
 
   interpreterHandler->incPathsExplored();
+  if (interpreterOpts.AbstractFunctions) {
+    interpreterHandler->incAbstractPathsExplored(state.isAbstract);
+  }
 
   std::set<ExecutionState*>::iterator it = addedStates.find(&state);
   if (it==addedStates.end()) {
@@ -2769,8 +2773,8 @@ void Executor::terminateStateOnError(ExecutionState &state,
   // If the state is abstract and failure threshold is reached, add the cloned
   // concrete state to the searcher. Remove all abstract states which descended
   // from the concrete state.
-  ExecutionState *lastConc = state.lastConcreteState;
-  if (lastConc) {
+  if (interpreterOpts.AbstractFunctions && state.isAbstract) {
+    ExecutionState *lastConc = state.lastConcreteState;
     lastConc->failCount++;
     if (lastConc->failCount >= ABSTRACTION_FAIL_THRESHOLD) {
 
@@ -2779,6 +2783,7 @@ void Executor::terminateStateOnError(ExecutionState &state,
              && "Sleeping concrete state not found");
       sleepingStates.erase(it);
 
+      klee_message("NOTE: Crossed error threshold, scheduling concrete state for execution");
       addedStates.insert(lastConc);
 
       for (std::set<ExecutionState*>::iterator
@@ -2791,11 +2796,13 @@ void Executor::terminateStateOnError(ExecutionState &state,
     }
   }
 
-  // Don't report errors for abstract state.
-  if (!lastConc && ( EmitAllErrors ||
-      emittedErrors.insert(std::make_pair(lastInst, message)).second)) {
+  if (EmitAllErrors ||
+      emittedErrors.insert(std::make_pair(lastInst, message)).second) {
     if (ii.file != "") {
       klee_message("ERROR: %s:%d: %s", ii.file.c_str(), ii.line, message.c_str());
+      if (interpreterOpts.AbstractFunctions && state.isAbstract) {
+        klee_message("NOTE: Error is in abstract state");
+      }
     } else {
       klee_message("ERROR: (location information missing) %s", message.c_str());
     }
@@ -2804,7 +2811,11 @@ void Executor::terminateStateOnError(ExecutionState &state,
 
     std::string MsgString;
     llvm::raw_string_ostream msg(MsgString);
-    msg << "Error: " << message << "\n";
+    msg << "Error: ";
+    if (interpreterOpts.AbstractFunctions && state.isAbstract) {
+      msg << "(Abstract State) ";
+    }
+    msg << message << "\n";
     if (ii.file != "") {
       msg << "File: " << ii.file << "\n";
       msg << "Line: " << ii.line << "\n";
@@ -3459,9 +3470,11 @@ void Executor::getConstraintLog(const ExecutionState &state, std::string &res,
                                 Interpreter::LogType logFormat) {
 
   std::ostringstream info;
+  std::string comment;
 
   switch (logFormat) {
   case STP: {
+    comment = "%";
     Query query(state.constraints, ConstantExpr::alloc(0, Expr::Bool));
     char *log = solver->getConstraintLog(query);
     res = std::string(log);
@@ -3469,6 +3482,7 @@ void Executor::getConstraintLog(const ExecutionState &state, std::string &res,
   } break;
 
   case KQUERY: {
+    comment = "#";
     std::string Str;
     llvm::raw_string_ostream info(Str);
     ExprPPrinter::printConstraints(info, state.constraints);
@@ -3476,6 +3490,7 @@ void Executor::getConstraintLog(const ExecutionState &state, std::string &res,
   } break;
 
   case SMTLIB2: {
+    comment = ";";
     std::string Str;
     llvm::raw_string_ostream info(Str);
     ExprSMTLIBPrinter printer;
@@ -3488,6 +3503,16 @@ void Executor::getConstraintLog(const ExecutionState &state, std::string &res,
 
   default:
     klee_warning("Executor::getConstraintLog() : Log format not supported!");
+  }
+
+  if (interpreterOpts.AbstractFunctions) {
+    res += comment;
+    if (state.isAbstract) {
+      res += "Abstract state\n";
+    }
+    else {
+      res += "Concrete state\n";
+    }
   }
 }
 

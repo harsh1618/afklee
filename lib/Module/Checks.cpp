@@ -157,3 +157,46 @@ bool OvershiftCheckPass::runOnModule(Module &M) {
   }
   return moduleChanged;
 }
+
+char CheckFreePass::ID;
+
+bool CheckFreePass::runOnModule(Module &M) { 
+  Function *checkFreeFunction = 0;
+
+  bool moduleChanged = false;
+  
+  for (Module::iterator f = M.begin(), fe = M.end(); f != fe; ++f) {
+    for (Function::iterator b = f->begin(), be = f->end(); b != be; ++b) {
+      for (BasicBlock::iterator i = b->begin(), ie = b->end(); i != ie; ++i) {     
+        if (CallInst* call = dyn_cast<CallInst>(i)) {
+          if (call->getCalledFunction()
+              && call->getCalledFunction()->hasName()
+              && call->getCalledFunction()->getName() == "free") {
+            // Lazily bind the function to avoid always importing it.
+            if (!checkFreeFunction) {
+              Constant *fc = M.getOrInsertFunction("klee_free", 
+                  Type::getVoidTy(getGlobalContext()), 
+                  Type::getInt8PtrTy(getGlobalContext()), // void *
+                  NULL);
+              checkFreeFunction = cast<Function>(fc);
+            }
+
+
+            Instruction  *nulli = NULL;
+            CallInst * ci = CallInst::Create(checkFreeFunction,
+                call->getOperand(0), "", nulli);
+
+            // Replace free() by klee_free()
+            ReplaceInstWithInst(i->getParent()->getInstList(), i, ci);
+
+            // Set debug location of klee_free to that of the call to free.
+            ci->setDebugLoc(call->getDebugLoc());
+            moduleChanged = true;
+          }
+        }
+      }
+    }
+  }
+  return moduleChanged;
+}
+

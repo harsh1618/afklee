@@ -125,6 +125,13 @@ public:
   virtual bool runOnModule(llvm::Module &M);
 };
 
+class CheckFreePass : public llvm::ModulePass {
+  static char ID;
+public:
+  CheckFreePass(): ModulePass(ID) {}
+  virtual bool runOnModule(llvm::Module &M);
+};
+
 /// This pass injects checks to check for overshifting.
 ///
 /// Overshifting is where a Shl, LShr or AShr is performed

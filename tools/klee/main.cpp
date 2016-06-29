@@ -220,6 +220,11 @@ namespace {
   Watchdog("watchdog",
            cl::desc("Use a watchdog process to enforce --max-time."),
            cl::init(0));
+
+  cl::opt<bool>
+  AbstractFunctions("abstract-functions",
+            cl::desc("perform abstraction of function calls"),
+            cl::init(false));
 }
 
 extern cl::opt<double> MaxTime;
@@ -236,6 +241,8 @@ private:
 
   unsigned m_testIndex;  // number of tests written so far
   unsigned m_pathsExplored; // number of paths explored so far
+  unsigned m_abstractPathsExplored; // number of paths where some function was abstracted
+  unsigned m_concretePathsExplored; // number of paths where some function was abstracted
 
   // used for writing .ktest files
   int m_argc;
@@ -248,7 +255,13 @@ public:
   llvm::raw_ostream &getInfoStream() const { return *m_infoFile; }
   unsigned getNumTestCases() { return m_testIndex; }
   unsigned getNumPathsExplored() { return m_pathsExplored; }
+  unsigned getNumAbstractPathsExplored() { return m_abstractPathsExplored; }
+  unsigned getNumConcretePathsExplored() { return m_concretePathsExplored; }
   void incPathsExplored() { m_pathsExplored++; }
+  void incAbstractPathsExplored(bool abstract) {
+    if (abstract) m_abstractPathsExplored++;
+    else m_concretePathsExplored++;
+  }
 
   void setInterpreter(Interpreter *i);
 
@@ -279,6 +292,8 @@ KleeHandler::KleeHandler(int argc, char **argv)
     m_outputDirectory(),
     m_testIndex(0),
     m_pathsExplored(0),
+    m_abstractPathsExplored(0),
+    m_concretePathsExplored(0),
     m_argc(argc),
     m_argv(argv) {
 
@@ -1282,7 +1297,8 @@ int main(int argc, char **argv, char **envp) {
   Interpreter::ModuleOptions Opts(LibraryDir.c_str(),
                                   /*Optimize=*/OptimizeModule,
                                   /*CheckDivZero=*/CheckDivZero,
-                                  /*CheckOvershift=*/CheckOvershift);
+                                  /*CheckOvershift=*/CheckOvershift,
+                                  /*AbstractFunctions=*/AbstractFunctions);
 
   switch (Libc) {
   case NoLibc: /* silence compiler warning */
@@ -1377,6 +1393,7 @@ int main(int argc, char **argv, char **envp) {
 
   Interpreter::InterpreterOptions IOpts;
   IOpts.MakeConcreteSymbolic = MakeConcreteSymbolic;
+  IOpts.AbstractFunctions = AbstractFunctions;
   KleeHandler *handler = new KleeHandler(pArgc, pArgv);
   Interpreter *interpreter =
     theInterpreter = Interpreter::create(IOpts, handler);
@@ -1552,6 +1569,12 @@ int main(int argc, char **argv, char **envp) {
         << handler->getNumPathsExplored() << "\n";
   stats << "KLEE: done: generated tests = "
         << handler->getNumTestCases() << "\n";
+  if (AbstractFunctions) {
+    stats << "KLEE: done: completed abstract paths = "
+      << handler->getNumAbstractPathsExplored() << "\n";
+    stats << "KLEE: done: completed concrete paths = "
+      << handler->getNumConcretePathsExplored() << "\n";
+  }
 
   bool useColors = llvm::errs().is_displayed();
   if (useColors)

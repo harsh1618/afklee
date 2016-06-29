@@ -118,6 +118,7 @@ public:
   TreeOStream symPathOS;
 
   ExecutionState *lastConcreteState;
+  bool isAbstract;
   unsigned failCount;
 
   /// @brief Counts how many instructions were executed since the last new
