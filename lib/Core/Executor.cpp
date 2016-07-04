@@ -1134,6 +1134,33 @@ void Executor::stepInstruction(ExecutionState &state) {
     haltExecution = true;
 }
 
+Function *Executor::getAbstract(ExecutionState &state, CallSite cs)
+{
+  // Don't abstract if call modifies error bit.
+  if (kmodule->errorBitCalls.find(cs) == kmodule->errorBitCalls.end())
+    return NULL;
+  // TODO: handle invoke
+  Function *f = cs.getCalledFunction();
+  if (!f)
+    return NULL;
+  // Check if symbolic version exists.
+  SmallString<512> tmpName;
+  StringRef symName = ("_symbolic_" + f->getName()).toStringRef(tmpName);
+  Function *symFn = kmodule->module->getFunction(symName);
+  if (!symFn)
+    return NULL;
+
+  // Don't clobber existing aliases.
+  if (state.getFnAlias(f->getName()) != "")
+    return NULL;
+
+  // Randomly decide whether to abstract.
+  if (theRNG.getInt32() % 5)
+    return NULL;
+
+  return symFn;
+}
+
 void Executor::executeCall(ExecutionState &state, 
                            KInstruction *ki,
                            Function *f,
@@ -1204,12 +1231,9 @@ void Executor::executeCall(ExecutionState &state,
     // Randomly choose whether to make the function symbolic. If this is the
     // first function to be made symbolic on the current path, create a copy of
     // the execution state.
-    if (interpreterOpts.AbstractFunctions && (theRNG.getInt32() % 10 == 0)
-        && state.getFnAlias(f->getName()) == "") {
-      SmallString<512> tmpName;
-      StringRef symName = ("_symbolic_" + f->getName()).toStringRef(tmpName);
-      GlobalValue *gv = kmodule->module->getNamedValue(symName);
-      if (Function *symFn = dyn_cast_or_null<Function>(gv)) {
+    if (interpreterOpts.AbstractFunctions) {
+      CallSite cs(i);
+      if (Function *symFn = getAbstract(state, cs)) {
         klee_message("Aliasing %s to %s\n", f->getName().data(), symFn->getName().data());
         if (!state.isAbstract) {
           ExecutionState *copiedConcreteState = new ExecutionState(state);

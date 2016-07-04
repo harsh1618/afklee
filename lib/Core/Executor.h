@@ -408,6 +408,10 @@ private:
                      double maxInstTime);
   void checkMemoryUsage();
 
+  // Get abstract version of function being called.
+  // Return null if the abstraction can't be done.
+  llvm::Function *getAbstract(ExecutionState &state, llvm::CallSite cs);
+
 public:
   Executor(const InterpreterOptions &opts, InterpreterHandler *ie);
   virtual ~Executor();
