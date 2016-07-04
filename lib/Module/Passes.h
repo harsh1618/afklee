@@ -23,6 +23,9 @@
 #endif
 #include "llvm/Pass.h"
 #include "llvm/CodeGen/IntrinsicLowering.h"
+#include "klee/Internal/Module/KModule.h"
+#include "llvm/Analysis/AliasAnalysis.h"
+#include "llvm/IR/DataLayout.h"
 
 namespace llvm {
   class Function;
@@ -130,6 +133,23 @@ class CheckFreePass : public llvm::ModulePass {
 public:
   CheckFreePass(): ModulePass(ID) {}
   virtual bool runOnModule(llvm::Module &M);
+};
+
+// This pass populates kmodule->errorBitCalls with the callsites
+// which can modify the error bit global variable.
+class ErrorBitPass : public llvm::ModulePass {
+  static char ID;
+  klee::KModule *kmodule;
+
+public:
+  ErrorBitPass(klee::KModule *km): ModulePass(ID), kmodule(km) {}
+  virtual bool runOnModule(llvm::Module &M);
+  virtual void getAnalysisUsage(llvm::AnalysisUsage &AU) const {
+    // rquired by GlobalsModRefAnalysis
+    AU.addRequired<llvm::DataLayout>();
+    AU.addRequired<llvm::AliasAnalysis>();
+    AU.setPreservesAll();
+  }
 };
 
 /// This pass injects checks to check for overshifting.

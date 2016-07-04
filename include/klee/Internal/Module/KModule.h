@@ -13,6 +13,8 @@
 #include "klee/Config/Version.h"
 #include "klee/Interpreter.h"
 
+#include "llvm/Support/CallSite.h"
+
 #include <map>
 #include <set>
 #include <vector>
@@ -85,6 +87,7 @@ namespace klee {
   class KModule {
   public:
     llvm::Module *module;
+    std::set<llvm::CallSite> errorBitCalls;
 #if LLVM_VERSION_CODE <= LLVM_VERSION(3, 1)
     llvm::TargetData *targetData;
 #else

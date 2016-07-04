@@ -2,11 +2,15 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-int status = 0;
-int freed = 0;
+int klee_free_status = 0;
+int klee_free_freed = 0;
 
 void klee_free(void *ptr) {
-  if (status == 0) status = 1;
-  freed = 1;
+  if (klee_free_status == 1) {
+    // dummy check, not actually double free
+    klee_report_error(__FILE__, __LINE__, "double free", "free.err");
+  }
+  if (klee_free_status == 0) klee_free_status = 1;
+  klee_free_freed = 1;
   free(ptr);
 }

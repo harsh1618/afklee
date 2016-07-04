@@ -45,6 +45,7 @@
 #include "llvm/Pass.h"
 #include "llvm/Transforms/Scalar.h"
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
+#include "llvm/Support/Debug.h"
 
 using namespace llvm;
 using namespace klee;
@@ -164,7 +165,7 @@ bool CheckFreePass::runOnModule(Module &M) {
   Function *checkFreeFunction = 0;
 
   bool moduleChanged = false;
-  
+
   for (Module::iterator f = M.begin(), fe = M.end(); f != fe; ++f) {
     for (Function::iterator b = f->begin(), be = f->end(); b != be; ++b) {
       for (BasicBlock::iterator i = b->begin(), ie = b->end(); i != ie; ++i) {     
@@ -187,6 +188,7 @@ bool CheckFreePass::runOnModule(Module &M) {
                 call->getOperand(0), "", nulli);
 
             // Replace free() by klee_free()
+            //errs() << "Replaced FREE in " << f->getName() << "\n";
             ReplaceInstWithInst(i->getParent()->getInstList(), i, ci);
 
             // Set debug location of klee_free to that of the call to free.
