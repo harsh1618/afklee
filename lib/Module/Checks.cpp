@@ -159,10 +159,10 @@ bool OvershiftCheckPass::runOnModule(Module &M) {
   return moduleChanged;
 }
 
-char CheckFreePass::ID;
+char InstrumentFreePass::ID;
 
-bool CheckFreePass::runOnModule(Module &M) { 
-  Function *checkFreeFunction = 0;
+bool InstrumentFreePass::runOnModule(Module &M) { 
+  Function *kleeFreeFunction = 0;
 
   bool moduleChanged = false;
 
@@ -174,17 +174,17 @@ bool CheckFreePass::runOnModule(Module &M) {
               && call->getCalledFunction()->hasName()
               && call->getCalledFunction()->getName() == "free") {
             // Lazily bind the function to avoid always importing it.
-            if (!checkFreeFunction) {
+            if (!kleeFreeFunction) {
               Constant *fc = M.getOrInsertFunction("klee_free", 
                   Type::getVoidTy(getGlobalContext()), 
                   Type::getInt8PtrTy(getGlobalContext()), // void *
                   NULL);
-              checkFreeFunction = cast<Function>(fc);
+              kleeFreeFunction = cast<Function>(fc);
             }
 
 
             Instruction  *nulli = NULL;
-            CallInst * ci = CallInst::Create(checkFreeFunction,
+            CallInst * ci = CallInst::Create(kleeFreeFunction,
                 call->getOperand(0), "", nulli);
 
             // Replace free() by klee_free()

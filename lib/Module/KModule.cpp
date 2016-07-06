@@ -57,6 +57,7 @@
 #include "llvm/Support/raw_os_ostream.h"
 #include "llvm/Support/Path.h"
 #include "llvm/Transforms/Scalar.h"
+#include "llvm/Transforms/IPO.h"
 
 #include <llvm/Transforms/Utils/Cloning.h>
 
@@ -305,7 +306,9 @@ void KModule::prepare(const Interpreter::ModuleOptions &opts,
   if (opts.CheckDivZero) pm.add(new DivCheckPass());
   if (opts.CheckOvershift) pm.add(new OvershiftCheckPass());
   // Perform instrumentation before linking klee intrinsics
-  if (opts.AbstractFunctions) pm.add(new CheckFreePass());
+  if (opts.AbstractFunctions) {
+    pm.add(new InstrumentFreePass());
+  }
   // FIXME: This false here is to work around a bug in
   // IntrinsicLowering which caches values which may eventually be
   // deleted (via RAUW). This can be removed once LLVM fixes this
@@ -363,8 +366,13 @@ void KModule::prepare(const Interpreter::ModuleOptions &opts,
     addInternalFunction("klee_free");
     // Not modified by external modules. Allows alias analysis to treat these
     // globals as non-address taken.
-    module->getNamedValue("klee_free_status")->setLinkage(GlobalValue::InternalLinkage);
-    module->getNamedValue("klee_free_freed")->setLinkage(GlobalValue::InternalLinkage);
+    Module::GlobalListType &globals = module->getGlobalList();
+    for (Module::GlobalListType::iterator it = globals.begin();
+         it != globals.end(); it++) {
+      it->setLinkage(GlobalValue::InternalLinkage);
+    }
+    //module->getNamedValue("klee_free_status")->setLinkage(GlobalValue::InternalLinkage);
+    //module->getNamedValue("klee_free_freed")->setLinkage(GlobalValue::InternalLinkage);
   }
 
 
@@ -392,6 +400,8 @@ void KModule::prepare(const Interpreter::ModuleOptions &opts,
     pm3.add(new DataLayout(module));
     pm3.add(createGlobalsModRefPass());
     pm3.add(new ErrorBitPass(this));
+    pm3.add(createArgumentPromotionPass());
+    pm3.add(new AddAbstractFunctionsPass());
   }
   pm3.run(*module);
 #if LLVM_VERSION_CODE < LLVM_VERSION(3, 3)

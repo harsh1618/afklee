@@ -128,10 +128,10 @@ public:
   virtual bool runOnModule(llvm::Module &M);
 };
 
-class CheckFreePass : public llvm::ModulePass {
+class InstrumentFreePass : public llvm::ModulePass {
   static char ID;
 public:
-  CheckFreePass(): ModulePass(ID) {}
+  InstrumentFreePass(): ModulePass(ID) {}
   virtual bool runOnModule(llvm::Module &M);
 };
 
@@ -145,13 +145,26 @@ public:
   ErrorBitPass(klee::KModule *km): ModulePass(ID), kmodule(km) {}
   virtual bool runOnModule(llvm::Module &M);
   virtual void getAnalysisUsage(llvm::AnalysisUsage &AU) const {
-    // rquired by GlobalsModRefAnalysis
+    // required by GlobalsModRefAnalysis
     AU.addRequired<llvm::DataLayout>();
     AU.addRequired<llvm::AliasAnalysis>();
     AU.setPreservesAll();
   }
 };
 
+/// This pass creates abstract versions of functions in the module wherever
+/// possible.
+class AddAbstractFunctionsPass: public llvm::ModulePass {
+  static char ID;
+
+public:
+  AddAbstractFunctionsPass(): ModulePass(ID) {}
+  virtual bool runOnModule(llvm::Module &M);
+  virtual void getAnalysisUsage(llvm::AnalysisUsage &AU) const {
+    AU.addRequired<llvm::DataLayout>();
+    AU.addRequired<llvm::AliasAnalysis>();
+  }
+};
 /// This pass injects checks to check for overshifting.
 ///
 /// Overshifting is where a Shl, LShr or AShr is performed
