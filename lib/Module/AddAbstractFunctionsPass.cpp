@@ -58,8 +58,12 @@ bool AddAbstractFunctionsPass::runOnModule(Module &M) {
     FunctionType *ftype = func->getFunctionType();
     Type *retType = ftype->getReturnType();
     if (ftype->isVarArg()) continue;
-    if (retType->isPointerTy() || retType->isSized() || retType->isVoidTy()) continue;
+    if (retType->isPointerTy() || !retType->isSized() || retType->isVoidTy()) continue;
     if (!(func->hasName())) continue;
+    SmallString<512> tmpName;
+    StringRef symName = ("_symbolic_" + func->getName()).toStringRef(tmpName);
+    if (M.getFunction(symName))
+      continue;
 
     // Function doesn't modify memory outside its stack frame.
     // Can be abstracted.
@@ -69,7 +73,7 @@ bool AddAbstractFunctionsPass::runOnModule(Module &M) {
       // symbolic value.
       Function *absFun = Function::Create(ftype,
           Function::InternalLinkage,
-          "_symbolic_" + func->getName(), &M);
+          symName, &M);
       Function *klee_make_symbolic = M.getFunction("klee_make_symbolic");
       assert(klee_make_symbolic && "klee_make_symbolic function not found in module");
       IRBuilder<> Builder(getGlobalContext());

@@ -118,7 +118,14 @@ public:
   TreeOStream symPathOS;
 
   ExecutionState *lastConcreteState;
-  bool isAbstract;
+
+  enum AbstractState {
+    Concrete = 0,   // No function abstraction
+    Abstract,       // At least one function has been abstracted
+    ConcreteError   // Concrete state made active after error on abstract state
+  };
+
+  AbstractState abstraction;
   unsigned failCount;
 
   /// @brief Counts how many instructions were executed since the last new

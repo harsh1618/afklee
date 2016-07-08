@@ -1136,6 +1136,10 @@ void Executor::stepInstruction(ExecutionState &state) {
 
 Function *Executor::getAbstract(ExecutionState &state, CallSite cs)
 {
+  // Don't abstract if an error was encountered on an abstract state forked
+  // from this concrete state.
+  if (state.abstraction == ExecutionState::ConcreteError)
+    return NULL;
   // Don't abstract if call modifies error bit.
   if (kmodule->errorBitCalls.find(cs) == kmodule->errorBitCalls.end())
     return NULL;
@@ -1235,11 +1239,11 @@ void Executor::executeCall(ExecutionState &state,
       CallSite cs(i);
       if (Function *symFn = getAbstract(state, cs)) {
         klee_message("Aliasing %s to %s\n", f->getName().data(), symFn->getName().data());
-        if (!state.isAbstract) {
+        if (state.abstraction == ExecutionState::Abstract) {
           ExecutionState *copiedConcreteState = new ExecutionState(state);
           copiedConcreteState->failCount = 0;
           state.lastConcreteState = copiedConcreteState;
-          state.isAbstract = true;
+          state.abstraction = ExecutionState::Abstract;
           sleepingStates.insert(copiedConcreteState);
         }
         state.addFnAlias(f->getName(), symFn->getName());
@@ -2707,7 +2711,7 @@ void Executor::terminateState(ExecutionState &state) {
 
   interpreterHandler->incPathsExplored();
   if (interpreterOpts.AbstractFunctions) {
-    interpreterHandler->incAbstractPathsExplored(state.isAbstract);
+    interpreterHandler->incAbstractPathsExplored(state.abstraction == ExecutionState::Abstract);
   }
 
   std::set<ExecutionState*>::iterator it = addedStates.find(&state);
@@ -2797,7 +2801,7 @@ void Executor::terminateStateOnError(ExecutionState &state,
   // If the state is abstract and failure threshold is reached, add the cloned
   // concrete state to the searcher. Remove all abstract states which descended
   // from the concrete state.
-  if (interpreterOpts.AbstractFunctions && state.isAbstract) {
+  if (interpreterOpts.AbstractFunctions && state.abstraction == ExecutionState::Abstract) {
     ExecutionState *lastConc = state.lastConcreteState;
     lastConc->failCount++;
     if (lastConc->failCount >= ABSTRACTION_FAIL_THRESHOLD) {
@@ -2808,6 +2812,7 @@ void Executor::terminateStateOnError(ExecutionState &state,
       sleepingStates.erase(it);
 
       klee_message("NOTE: Crossed error threshold, scheduling concrete state for execution");
+      lastConc->abstraction = ExecutionState::ConcreteError;
       addedStates.insert(lastConc);
 
       for (std::set<ExecutionState*>::iterator
@@ -2824,7 +2829,7 @@ void Executor::terminateStateOnError(ExecutionState &state,
       emittedErrors.insert(std::make_pair(lastInst, message)).second) {
     if (ii.file != "") {
       klee_message("ERROR: %s:%d: %s", ii.file.c_str(), ii.line, message.c_str());
-      if (interpreterOpts.AbstractFunctions && state.isAbstract) {
+      if (interpreterOpts.AbstractFunctions && state.abstraction == ExecutionState::Abstract) {
         klee_message("NOTE: Error is in abstract state");
       }
     } else {
@@ -2836,7 +2841,7 @@ void Executor::terminateStateOnError(ExecutionState &state,
     std::string MsgString;
     llvm::raw_string_ostream msg(MsgString);
     msg << "Error: ";
-    if (interpreterOpts.AbstractFunctions && state.isAbstract) {
+    if (interpreterOpts.AbstractFunctions && state.abstraction == ExecutionState::Abstract) {
       msg << "(Abstract State) ";
     }
     msg << message << "\n";
@@ -3531,7 +3536,7 @@ void Executor::getConstraintLog(const ExecutionState &state, std::string &res,
 
   if (interpreterOpts.AbstractFunctions) {
     res += comment;
-    if (state.isAbstract) {
+    if (state.abstraction == ExecutionState::Abstract) {
       res += "Abstract state\n";
     }
     else {
