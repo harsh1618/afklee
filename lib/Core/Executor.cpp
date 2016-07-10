@@ -1239,7 +1239,7 @@ void Executor::executeCall(ExecutionState &state,
       CallSite cs(i);
       if (Function *symFn = getAbstract(state, cs)) {
         klee_message("Aliasing %s to %s\n", f->getName().data(), symFn->getName().data());
-        if (state.abstraction == ExecutionState::Abstract) {
+        if (state.abstraction == ExecutionState::Concrete) {
           ExecutionState *copiedConcreteState = new ExecutionState(state);
           copiedConcreteState->failCount = 0;
           state.lastConcreteState = copiedConcreteState;
