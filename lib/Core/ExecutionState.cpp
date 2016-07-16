@@ -80,13 +80,12 @@ ExecutionState::ExecutionState(KFunction *kf) :
     coveredNew(false),
     forkDisabled(false),
     ptreeNode(0) {
-      errs() << "Creating from kf " << this << "\n";
   pushFrame(0, kf);
 }
 
 ExecutionState::ExecutionState(const std::vector<ref<Expr> > &assumptions)
     : constraints(assumptions), queryCost(0.),
-      lastConcreteState(0), abstraction(Concrete), ptreeNode(0) {errs() << "Creating from assumptions\n";}
+      lastConcreteState(0), abstraction(Concrete), ptreeNode(0) {}
 
 ExecutionState::~ExecutionState() {
   for (unsigned int i=0; i<symbolics.size(); i++)
@@ -117,7 +116,6 @@ ExecutionState::ExecutionState(const ExecutionState& state):
 
     pathOS(state.pathOS),
     symPathOS(state.symPathOS),
-    pTreePath(state.pTreePath),
 
     lastConcreteState(state.lastConcreteState),
     abstraction(state.abstraction),
@@ -129,7 +127,6 @@ ExecutionState::ExecutionState(const ExecutionState& state):
     symbolics(state.symbolics),
     arrayNames(state.arrayNames)
 {
-  errs() << "Creating " << this << " from state " << &state << "\n";
   for (unsigned int i=0; i<symbolics.size(); i++)
     symbolics[i].first->refCount++;
 }

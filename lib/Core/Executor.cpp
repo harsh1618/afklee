@@ -826,7 +826,6 @@ Executor::fork(ExecutionState &current, ref<Expr> condition, bool isInternal) {
     ++stats::forks;
 
     falseState = trueState->branch();
-    errs() << "Constructing " << falseState << " from " << trueState << "\n";
     addedStates.insert(falseState);
 
     if (RandomizeFork && theRNG.getBool())
@@ -1142,8 +1141,8 @@ Function *Executor::getAbstract(ExecutionState &state, CallSite cs)
   if (state.abstraction == ExecutionState::ConcreteError)
     return NULL;
   // Don't abstract if call modifies error bit.
-  //if (kmodule->errorBitCalls.find(cs) == kmodule->errorBitCalls.end())
-    //return NULL;
+  if (kmodule->errorBitCalls.find(cs) == kmodule->errorBitCalls.end())
+    return NULL;
   // TODO: handle invoke
   Function *f = cs.getCalledFunction();
   if (!f)
@@ -1241,35 +1240,9 @@ void Executor::executeCall(ExecutionState &state,
       if (Function *symFn = getAbstract(state, cs)) {
         klee_message("Aliasing %s to %s\n", f->getName().data(), symFn->getName().data());
         if (state.abstraction == ExecutionState::Concrete) {
-          llvm::raw_fd_ostream *fil = interpreterHandler->openOutputFile("before");
-          processTree->dump(*fil);
-          errs() << "FORK " << processTree->root << ":" << processTree->root->data << " ";
-            errs() << processTree->root->left << ":" << (processTree->root->left? (processTree->root->left->data):(NULL)) << " ";
-            errs() << processTree->root->right << ":" << (processTree->root->right? (processTree->root->right->data):NULL) << "\n";
           ExecutionState *copiedConcreteState = new ExecutionState(state);
-          copiedConcreteState->pc = copiedConcreteState->prevPC;
           // prevPC is in an inconsistent state now. Shouldn't matter.
-          errs() << "Saved concrete " << &state << " " << copiedConcreteState << "\n";
-          //errs() << copiedConcreteState->pathOS;
-
-          // Record path from pTreeNode to root.
-          PTreeNode *ptnode = copiedConcreteState->ptreeNode;
-          while (ptnode->parent != NULL) {
-            if (ptnode->parent->left == ptnode) {
-              copiedConcreteState->pTreePath.push_back(0);
-            }
-            else {
-              assert(ptnode->parent->right == ptnode);
-              copiedConcreteState->pTreePath.push_back(1);
-            }
-            ptnode = ptnode->parent;
-          }
-          errs() << "path ";
-          for (std::vector<bool>::iterator it = copiedConcreteState->pTreePath.begin();
-               it != copiedConcreteState->pTreePath.end(); it++) {
-            errs() << *it;
-          }
-          errs() << "\n";
+          copiedConcreteState->pc = copiedConcreteState->prevPC;
           copiedConcreteState->failCount = 0;
           state.lastConcreteState = copiedConcreteState;
           state.abstraction = ExecutionState::Abstract;
@@ -2653,17 +2626,7 @@ void Executor::run(ExecutionState &initialState) {
   searcher->update(0, states, std::set<ExecutionState*>());
 
   while (!states.empty() && !haltExecution) {
-    //errs() << "States ";
-    //for (std::set<ExecutionState*>::const_iterator it = states.begin();
-        //it != states.end(); it ++) {
-      //errs() << *it << " ";
-    //}
-    //errs() << "\n";
     ExecutionState &state = searcher->selectState();
-    if (states.find(&state) == states.end()){
-      errs() << "selected unexpected state\n";
-    }
-    //errs() << "Selected " << &state << "\n";
     KInstruction *ki = state.pc;
     stepInstruction(state);
 
@@ -2743,11 +2706,6 @@ std::string Executor::getAddressInfo(ExecutionState &state,
 }
 
 void Executor::terminateState(ExecutionState &state) {
-  errs() << "TERMINATING " << &state << "\n";
-  errs() << "ROOT " << processTree->root << "\n";
-  errs() << "TREE " << processTree->root << ":" << processTree->root->data << " ";
-  errs() << processTree->root->left << ":" << (processTree->root->left? (processTree->root->left->data):(NULL)) << " ";
-  errs() << processTree->root->right << ":" << (processTree->root->right? (processTree->root->right->data):NULL) << "\n";
   if (replayKTest && replayPosition!=replayKTest->numObjects) {
     klee_warning_once(replayKTest,
                       "replay did not consume all objects in test input.");
@@ -2850,51 +2808,26 @@ void Executor::terminateStateOnError(ExecutionState &state,
     lastConc->failCount++;
     if (lastConc->failCount >= ABSTRACTION_FAIL_THRESHOLD) {
 
-          llvm::raw_fd_ostream *fil = interpreterHandler->openOutputFile("termi");
-          processTree->dump(*fil);
-
       std::set<ExecutionState*>::iterator it = sleepingStates.find(lastConc);
       assert(it != sleepingStates.end()
              && "Sleeping concrete state not found");
       sleepingStates.erase(it);
 
       klee_message("NOTE: Crossed error threshold, scheduling concrete state for execution");
-      errs() << "Activated " << lastConc << "\n";
       lastConc->abstraction = ExecutionState::ConcreteError;
-      errs() << "Adding " << lastConc << "\n";
 
-      errs() << "TERMI " << processTree->root << ":" << processTree->root->data << " ";
-      errs() << processTree->root->left << ":" << (processTree->root->left? (processTree->root->left->data):(NULL)) << " ";
-      errs() << processTree->root->right << ":" << (processTree->root->right? (processTree->root->right->data):NULL) << "\n";
-      // Traverse from root to locate the ptreenode of concrete state.
-      PTreeNode *ptnode = processTree->root;
-      while (!lastConc->pTreePath.empty()) {
-        bool dir = lastConc->pTreePath.back();
-        lastConc->pTreePath.pop_back();
-        if (dir) {
-          assert(ptnode->right);
-          ptnode = ptnode->right;
-        } else {
-          assert(ptnode->left);
-          ptnode = ptnode->left;
-        }
-      }
-      assert(ptnode == lastConc->ptreeNode);
-      lastConc->ptreeNode = new PTreeNode(ptnode->parent, lastConc);
-      PTreeNode *parent = ptnode->parent;
-      if (parent->left == ptnode) {
+      // The original ptreenode will be deleted when the abstract state is
+      // deleted. Create a new node and detach the old one from the tree.
+      PTreeNode *oldNode = lastConc->ptreeNode;
+      PTreeNode *parent = oldNode->parent;
+      lastConc->ptreeNode = new PTreeNode(oldNode->parent, lastConc);
+      if (parent->left == oldNode) {
         parent->left = lastConc->ptreeNode;
       } else {
-        assert(parent->right == ptnode);
+        assert(parent->right == oldNode);
         parent->right = lastConc->ptreeNode;
       }
-      ptnode->parent = NULL;
-
-      errs() << "ACTIVE " << processTree->root << ":" << processTree->root->data << " ";
-      errs() << processTree->root->left << ":" << (processTree->root->left? (processTree->root->left->data):(NULL)) << " ";
-      errs() << processTree->root->right << ":" << (processTree->root->right? (processTree->root->right->data):NULL) << "\n";
-          llvm::raw_fd_ostream *fil2 = interpreterHandler->openOutputFile("active");
-          processTree->dump(*fil2);
+      oldNode->parent = NULL;
 
       addedStates.insert(lastConc);
       for (std::set<ExecutionState*>::iterator
@@ -2912,7 +2845,7 @@ void Executor::terminateStateOnError(ExecutionState &state,
     if (ii.file != "") {
       klee_message("ERROR: %s:%d: %s", ii.file.c_str(), ii.line, message.c_str());
       if (interpreterOpts.AbstractFunctions && state.abstraction == ExecutionState::Abstract) {
-        klee_message("NOTE: Error is in abstract state %p", &state);
+        klee_message("NOTE: Error is in abstract state");
       }
     } else {
       klee_message("ERROR: (location information missing) %s", message.c_str());

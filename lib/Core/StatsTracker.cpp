@@ -285,8 +285,6 @@ void StatsTracker::stepInstruction(ExecutionState &es) {
       }
     }
 
-    //errs() << &es << "\n";
-    assert(es.pc && "PC is NULL");
     Instruction *inst = es.pc->inst;
     const InstructionInfo &ii = *es.pc->info;
     StackFrame &sf = es.stack.back();
