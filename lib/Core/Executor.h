@@ -29,7 +29,7 @@
 #include <map>
 #include <set>
 
-#define ABSTRACTION_FAIL_THRESHOLD 5
+#define ABSTRACTION_FAIL_THRESHOLD 1
 
 struct KTest;
 

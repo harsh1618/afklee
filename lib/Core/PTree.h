@@ -39,9 +39,9 @@ namespace klee {
     PTreeNode *parent, *left, *right;
     ExecutionState *data;
     ref<Expr> condition;
+    PTreeNode(PTreeNode *_parent, ExecutionState *_data);
 
   private:
-    PTreeNode(PTreeNode *_parent, ExecutionState *_data);
     ~PTreeNode();
   };
 }

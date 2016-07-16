@@ -11,6 +11,7 @@
 
 #include <klee/Expr.h>
 #include <klee/util/ExprPPrinter.h>
+#include <llvm/Support/Debug.h>
 
 #include <vector>
 
@@ -36,6 +37,7 @@ PTree::split(Node *n,
 void PTree::remove(Node *n) {
   assert(!n->left && !n->right);
   do {
+    llvm::errs() << "Deleting " << n << "\n";
     Node *p = n->parent;
     delete n;
     if (p) {

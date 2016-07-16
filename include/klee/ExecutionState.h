@@ -117,6 +117,10 @@ public:
   /// taken to reach/create this state
   TreeOStream symPathOS;
 
+  // Path from root to this node in ptree as a vector of 0s(left) and 1s(right).
+  // Probably can be done with pathOS without creating a new field.
+  std::vector<bool> pTreePath;
+
   ExecutionState *lastConcreteState;
 
   enum AbstractState {
