@@ -1134,6 +1134,38 @@ void Executor::stepInstruction(ExecutionState &state) {
     haltExecution = true;
 }
 
+// Checks if the return value of the call is used in a GEP instruction.
+// FIXME: This should be cached.
+bool usedInGEP(CallSite cs)
+{
+  Instruction *inst = cs.getInstruction();
+  Value *add;
+  std::queue<Value *> q;
+  std::set<Value *> seen;
+  q.push(inst);
+  seen.insert(inst);
+  while (!q.empty()) {
+    Value *v = q.front();
+    q.pop();
+    // Traverse the def-use chain recursively and look for GEP instruction.
+    for (Value::use_iterator UI = v->use_begin(), E=v->use_end(); UI != E; ++UI) {
+      User *U = *UI;
+      if (isa<GetElementPtrInst>(U)) {
+        return true;
+      }
+      // FIXME: handle other instructions as well
+      if (StoreInst *si = dyn_cast<StoreInst>(U)) {
+        add = si->getOperand(1);
+      } else {
+        add = U;
+      }
+      if (seen.insert(add).second)
+        q.push(add);
+    }
+  }
+  return false;
+}
+
 Function *Executor::getAbstract(ExecutionState &state, CallSite cs)
 {
   // Don't abstract if an error was encountered on an abstract state forked
@@ -1156,6 +1188,10 @@ Function *Executor::getAbstract(ExecutionState &state, CallSite cs)
 
   // Don't clobber existing aliases.
   if (state.getFnAlias(f->getName()) != "")
+    return NULL;
+
+  // Don't abstract if the return value is used to calculate an address.
+  if (usedInGEP(cs))
     return NULL;
 
   // Randomly decide whether to abstract.
@@ -2800,6 +2836,41 @@ void Executor::terminateStateOnError(ExecutionState &state,
   Instruction * lastInst;
   const InstructionInfo &ii = getLastNonKleeInternalInstruction(state, &lastInst);
 
+  if (EmitAllErrors ||
+      emittedErrors.insert(std::make_pair(lastInst, message)).second) {
+    if (ii.file != "") {
+      klee_message("ERROR: %s:%d: %s", ii.file.c_str(), ii.line, message.c_str());
+      if (interpreterOpts.AbstractFunctions && state.abstraction == ExecutionState::Abstract) {
+        klee_message("NOTE: Error is in abstract state");
+      }
+    } else {
+      klee_message("ERROR: (location information missing) %s", message.c_str());
+    }
+    if (!EmitAllErrors)
+      klee_message("NOTE: now ignoring this error at this location");
+
+    std::string MsgString;
+    llvm::raw_string_ostream msg(MsgString);
+    msg << "Error: ";
+    if (interpreterOpts.AbstractFunctions && state.abstraction == ExecutionState::Abstract) {
+      msg << "(Abstract State) ";
+    }
+    msg << message << "\n";
+    if (ii.file != "") {
+      msg << "File: " << ii.file << "\n";
+      msg << "Line: " << ii.line << "\n";
+      msg << "assembly.ll line: " << ii.assemblyLine << "\n";
+    }
+    msg << "Stack: \n";
+    state.dumpStack(msg);
+
+    std::string info_str = info.str();
+    if (info_str != "")
+      msg << "Info: \n" << info_str;
+
+    interpreterHandler->processTestCase(state, msg.str().c_str(), suffix);
+  }
+    
   // If the state is abstract and failure threshold is reached, add the cloned
   // concrete state to the searcher. Remove all abstract states which descended
   // from the concrete state.
@@ -2840,41 +2911,6 @@ void Executor::terminateStateOnError(ExecutionState &state,
     }
   }
 
-  if (EmitAllErrors ||
-      emittedErrors.insert(std::make_pair(lastInst, message)).second) {
-    if (ii.file != "") {
-      klee_message("ERROR: %s:%d: %s", ii.file.c_str(), ii.line, message.c_str());
-      if (interpreterOpts.AbstractFunctions && state.abstraction == ExecutionState::Abstract) {
-        klee_message("NOTE: Error is in abstract state");
-      }
-    } else {
-      klee_message("ERROR: (location information missing) %s", message.c_str());
-    }
-    if (!EmitAllErrors)
-      klee_message("NOTE: now ignoring this error at this location");
-
-    std::string MsgString;
-    llvm::raw_string_ostream msg(MsgString);
-    msg << "Error: ";
-    if (interpreterOpts.AbstractFunctions && state.abstraction == ExecutionState::Abstract) {
-      msg << "(Abstract State) ";
-    }
-    msg << message << "\n";
-    if (ii.file != "") {
-      msg << "File: " << ii.file << "\n";
-      msg << "Line: " << ii.line << "\n";
-      msg << "assembly.ll line: " << ii.assemblyLine << "\n";
-    }
-    msg << "Stack: \n";
-    state.dumpStack(msg);
-
-    std::string info_str = info.str();
-    if (info_str != "")
-      msg << "Info: \n" << info_str;
-
-    interpreterHandler->processTestCase(state, msg.str().c_str(), suffix);
-  }
-    
   terminateState(state);
 }
 
